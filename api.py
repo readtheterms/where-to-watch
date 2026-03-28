@@ -51,6 +51,7 @@ def search_anilist(query):
           startDate { year }
           coverImage { large }
           status
+          description(asHtml: false)
         }
       }
     }

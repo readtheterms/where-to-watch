@@ -1,33 +1,23 @@
 import streamlit as st
 from api import search_tmdb, get_streaming, search_anilist
 
-# ─────────────────────────────────────────────
-# PAGE CONFIG
-# Must be the first Streamlit call in the file.
-# layout="wide" uses the full browser width.
-# ─────────────────────────────────────────────
+# Must be the first Streamlit call
 st.set_page_config(
     page_title="WhereToWatch",
     page_icon="🎬",
     layout="wide",
 )
 
-# ─────────────────────────────────────────────
-# CUSTOM CSS
-# Streamlit lets you inject raw CSS via st.markdown with unsafe_allow_html=True.
-# We use this to build a dark theme and card-style result layout that plain
-# Streamlit widgets can't produce on their own.
-# ─────────────────────────────────────────────
+# Inject CSS for dark theme and card layout
 st.markdown("""
 <style>
-    /* ── Global background & text ── */
+    /* Global background & text */
     .stApp { background-color: #0d0d0d; }
     body, p, span, label { color: #e0e0e0 !important; }
 
-    /* ── Hide the default Streamlit top header bar ── */
     header[data-testid="stHeader"] { background: transparent; }
 
-    /* ── Search input styling ── */
+    /* Search input */
     input[type="text"] {
         background-color: #1e1e1e !important;
         color: #ffffff !important;
@@ -36,7 +26,7 @@ st.markdown("""
         font-size: 1rem !important;
     }
 
-    /* ── Filter radio buttons: make them look like toggle pills ── */
+    /* Radio buttons styled as pill toggles */
     div[role="radiogroup"] {
         display: flex;
         gap: 8px;
@@ -54,7 +44,7 @@ st.markdown("""
         background-color: #2a2a2a;
     }
 
-    /* ── Result card container ── */
+    /* Result card */
     .result-card {
         background-color: #161625;
         border: 1px solid #2a2a3d;
@@ -69,7 +59,7 @@ st.markdown("""
     }
     .result-card:hover { border-color: #5555aa; }
 
-    /* ── Poster image inside the card ── */
+    /* Poster */
     .card-poster {
         width: 90px;
         min-width: 90px;
@@ -92,7 +82,7 @@ st.markdown("""
         text-align: center;
     }
 
-    /* ── Text inside the card ── */
+    /* Card text */
     .card-info { flex: 1; min-width: 0; }
     .card-title {
         font-size: 1.05rem;
@@ -114,7 +104,7 @@ st.markdown("""
         margin-bottom: 10px;
     }
 
-    /* ── Streaming platform badges ── */
+    /* Streaming badges */
     .badge-row {
         display: flex;
         flex-wrap: wrap;
@@ -132,7 +122,7 @@ st.markdown("""
     }
     .badge-none { color: #666; font-size: 0.8rem; }
 
-    /* ── Section divider ── */
+    /* Section divider */
     .section-header {
         font-size: 1.1rem;
         font-weight: 600;
@@ -145,11 +135,29 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────
-# PROVIDER COLOR MAP
-# Each streaming service gets a brand-accurate color.
-# Any provider not listed falls back to a neutral gray.
-# ─────────────────────────────────────────────
+# Provider URLs — keyed to match TMDB provider_name values exactly
+PROVIDER_URLS = {
+    "Netflix":               "https://www.netflix.com",
+    "Disney Plus":           "https://www.disneyplus.com",
+    "Hulu":                  "https://www.hulu.com",
+    "Amazon Prime Video":    "https://www.amazon.com/primevideo",
+    "Max":                   "https://www.max.com",
+    "HBO Max":               "https://www.max.com",
+    "Apple TV Plus":         "https://tv.apple.com",
+    "Peacock":               "https://www.peacocktv.com",
+    "Peacock Premium":       "https://www.peacocktv.com",
+    "Paramount Plus":        "https://www.paramountplus.com",
+    "Paramount+ Amazon Channel": "https://www.paramountplus.com",
+    "Crunchyroll":           "https://www.crunchyroll.com",
+    "Funimation Now":        "https://www.funimation.com",
+    "HIDIVE":                "https://www.hidive.com",
+    "Tubi TV":               "https://tubitv.com",
+    "Pluto TV":              "https://pluto.tv",
+    "Shudder":               "https://www.shudder.com",
+    "Mubi":                  "https://mubi.com",
+}
+
+# Brand colors keyed to TMDB provider_name values
 PROVIDER_COLORS = {
     "Netflix":               "#E50914",
     "Disney Plus":           "#113CCF",
@@ -173,40 +181,38 @@ PROVIDER_COLORS = {
 }
 
 
-# ─────────────────────────────────────────────
-# HELPER FUNCTIONS
-# Small, focused functions that each do one thing.
-# Breaking logic into helpers keeps the main UI code readable.
-# ─────────────────────────────────────────────
-
 def get_tmdb_poster(poster_path):
-    """Convert a TMDB poster_path like '/abc123.jpg' into a full CDN URL."""
+    """Return full TMDB image URL or None."""
     if poster_path:
         return f"https://image.tmdb.org/t/p/w200{poster_path}"
     return None
 
 
 def build_badges_html(providers):
-    """
-    Takes a list of provider dicts (each has 'provider_name') and returns
-    an HTML string of colored badge spans.
-    """
+    """Build HTML badge row from a list of provider dicts."""
     if not providers:
-        return '<span class="badge-none">Not streaming in the US</span>'
+        return '<span class="badge-none">⚠️ Not currently available on any streaming platform</span>'
 
     badges = ""
     for p in providers:
-        name = p.get("provider_name", "Unknown")
+        name  = p.get("provider_name", "Unknown")
         color = PROVIDER_COLORS.get(name, PROVIDER_COLORS["default"])
-        badges += f'<span class="badge" style="background-color:{color};">{name}</span>'
+        url   = PROVIDER_URLS.get(name)
+
+        if url:
+            # target="_blank" + rel="noopener" is standard for external links
+            badges += (
+                f'<a href="{url}" target="_blank" rel="noopener" style="text-decoration:none;">'
+                f'<span class="badge" style="background-color:{color};">{name}</span>'
+                f'</a>'
+            )
+        else:
+            badges += f'<span class="badge" style="background-color:{color};">{name}</span>'
     return badges
 
 
 def render_card(poster_url, title, year, rating, type_label, streaming_html):
-    """
-    Returns a full HTML string for one result card.
-    All card data is passed in — this function only deals with presentation.
-    """
+    """Return the HTML string for one result card."""
     if poster_url:
         poster_html = f'<img class="card-poster" src="{poster_url}" alt="{title} poster">'
     else:
@@ -225,9 +231,7 @@ def render_card(poster_url, title, year, rating, type_label, streaming_html):
     """
 
 
-# ─────────────────────────────────────────────
-# APP HEADER
-# ─────────────────────────────────────────────
+# ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""
     <h1 style="color:#ffffff; margin-bottom:0;">🎬 WhereToWatch</h1>
     <p style="color:#888; margin-top:4px; margin-bottom:24px;">
@@ -235,23 +239,14 @@ st.markdown("""
     </p>
 """, unsafe_allow_html=True)
 
-
-# ─────────────────────────────────────────────
-# SEARCH BAR
-# st.text_input returns whatever the user typed (empty string if nothing yet).
-# ─────────────────────────────────────────────
+# ── Search bar ────────────────────────────────────────────────────────────────
 query = st.text_input(
     label="search",
     placeholder="e.g.  Interstellar,  Attack on Titan,  The Bear ...",
     label_visibility="collapsed",
 )
 
-
-# ─────────────────────────────────────────────
-# FILTER BUTTONS
-# st.radio with horizontal=True renders as a row of options.
-# We store the choice and use it to decide which APIs to call.
-# ─────────────────────────────────────────────
+# ── Content type filter ───────────────────────────────────────────────────────
 filter_choice = st.radio(
     label="filter",
     options=["All", "Movies & TV", "Anime Only"],
@@ -259,70 +254,93 @@ filter_choice = st.radio(
     label_visibility="collapsed",
 )
 
-
-# ─────────────────────────────────────────────
-# RESULTS
-# Only run API calls when the user has typed something.
-# st.spinner shows a loading indicator while we wait for the APIs.
-# ─────────────────────────────────────────────
+# ── Results ───────────────────────────────────────────────────────────────────
 if query:
     show_tmdb  = filter_choice in ("All", "Movies & TV")
     show_anime = filter_choice in ("All", "Anime Only")
 
-    # ── MOVIES & TV ──────────────────────────
+    # ── Movies & TV ──────────────────────────────────────────────────────────
     if show_tmdb:
         st.markdown('<div class="section-header">📺 Movies &amp; TV Shows</div>', unsafe_allow_html=True)
 
+        # flatrate = paid subscription, ads/free = no cost to viewer
+        streaming_filter = st.radio(
+            label="streaming_tier",
+            options=["All tiers", "Free only", "Paid only"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+        # Fetch search results and provider data inside the spinner so both are covered
         with st.spinner("Searching movies and TV shows..."):
             tmdb_results = search_tmdb(query)
+
+            enriched = []
+            for item in tmdb_results[:6]:
+                media_type     = item.get("media_type", "movie")
+                providers_data = get_streaming(item["id"], media_type)
+
+                if streaming_filter == "Free only":
+                    all_providers = (
+                        providers_data.get("ads", []) +
+                        providers_data.get("free", [])
+                    )
+                elif streaming_filter == "Paid only":
+                    all_providers = providers_data.get("flatrate", [])
+                else:
+                    all_providers = (
+                        providers_data.get("flatrate", []) +
+                        providers_data.get("ads", []) +
+                        providers_data.get("free", [])
+                    )
+
+                # A provider can appear in multiple tiers — deduplicate by name
+                seen, unique_providers = set(), []
+                for p in all_providers:
+                    pname = p.get("provider_name")
+                    if pname and pname not in seen:
+                        seen.add(pname)
+                        unique_providers.append(p)
+
+                enriched.append({"item": item, "providers": unique_providers})
 
         if not tmdb_results:
             st.markdown('<p style="color:#666;">No movies or TV shows found.</p>', unsafe_allow_html=True)
         else:
-            # Show up to 6 results
-            for item in tmdb_results[:6]:
-                media_type = item.get("media_type", "movie")  # "movie" or "tv"
+            sort_by = st.selectbox(
+                "Sort by",
+                options=["Relevance", "Rating (high to low)", "Release year (newest first)"],
+                label_visibility="collapsed",
+            )
 
-                # Title: movies use 'title', TV shows use 'name'
-                title = item.get("title") or item.get("name") or "Unknown Title"
+            if sort_by == "Rating (high to low)":
+                enriched.sort(key=lambda e: e["item"].get("vote_average") or 0, reverse=True)
+            elif sort_by == "Release year (newest first)":
+                def get_year(e):
+                    date = e["item"].get("release_date") or e["item"].get("first_air_date") or ""
+                    return date[:4] if date else "0"
+                enriched.sort(key=get_year, reverse=True)
+            # "Relevance" keeps TMDB's default order
 
-                # Year: movies use 'release_date', TV shows use 'first_air_date'
+            for entry in enriched:
+                item       = entry["item"]
+                providers  = entry["providers"]
+                media_type = item.get("media_type", "movie")
+
+                # movies → 'title' + 'release_date'; TV → 'name' + 'first_air_date'
+                title    = item.get("title") or item.get("name") or "Unknown Title"
                 date_str = item.get("release_date") or item.get("first_air_date") or ""
-                year = date_str[:4] if date_str else "—"
+                year     = date_str[:4] if date_str else "—"
 
-                # Rating is out of 10 from TMDB
-                vote = item.get("vote_average")
+                vote       = item.get("vote_average")
                 rating_str = f"⭐ {vote:.1f} / 10" if vote else "No rating yet"
-
-                # Type label shown in the card meta line
                 type_label = "Movie" if media_type == "movie" else "TV Show"
-
                 poster_url = get_tmdb_poster(item.get("poster_path"))
 
-                # Fetch streaming providers for this specific title
-                providers_data = get_streaming(item["id"], media_type)
+                badges_html = build_badges_html(providers)
+                st.markdown(render_card(poster_url, title, year, rating_str, type_label, badges_html), unsafe_allow_html=True)
 
-                # Combine subscription streaming + free with ads + free
-                all_providers = (
-                    providers_data.get("flatrate", []) +
-                    providers_data.get("ads", []) +
-                    providers_data.get("free", [])
-                )
-
-                # Deduplicate by provider name (a service can appear in multiple tiers)
-                seen = set()
-                unique_providers = []
-                for p in all_providers:
-                    name = p.get("provider_name")
-                    if name and name not in seen:
-                        seen.add(name)
-                        unique_providers.append(p)
-
-                badges_html = build_badges_html(unique_providers)
-                card_html   = render_card(poster_url, title, year, rating_str, type_label, badges_html)
-                st.markdown(card_html, unsafe_allow_html=True)
-
-    # ── ANIME ─────────────────────────────────
+    # ── Anime ─────────────────────────────────────────────────────────────────
     if show_anime:
         st.markdown('<div class="section-header">🍥 Anime</div>', unsafe_allow_html=True)
 
@@ -333,49 +351,51 @@ if query:
             st.markdown('<p style="color:#666;">No anime found.</p>', unsafe_allow_html=True)
         else:
             for anime in anime_results:
-                # Prefer English title; fall back to romaji (Japanese romanized)
                 titles = anime.get("title", {})
-                title = titles.get("english") or titles.get("romaji") or "Unknown Title"
+                title  = titles.get("english") or titles.get("romaji") or "Unknown Title"
+                year   = str(anime.get("startDate", {}).get("year") or "—")
 
-                year = str(anime.get("startDate", {}).get("year") or "—")
+                # AniList scores are /100; display as /10 to match TMDB
+                score      = anime.get("averageScore")
+                rating_str = f"⭐ {score / 10:.1f} / 10" if score else "No rating yet"
 
-                # AniList scores are out of 100; convert to a /10 display
-                score = anime.get("averageScore")
-                if score:
-                    rating_str = f"⭐ {score / 10:.1f} / 10"
-                else:
-                    rating_str = "No rating yet"
-
-                # Genres as a comma-separated string
-                genres = anime.get("genres", [])
-                genre_str = ", ".join(genres[:3]) if genres else "—"
-
-                # Episodes count
-                eps = anime.get("episodes")
+                genres     = anime.get("genres", [])
+                genre_str  = ", ".join(genres[:3]) if genres else "—"
+                eps        = anime.get("episodes")
                 type_label = f"Anime · {eps} eps" if eps else "Anime"
                 type_label += f" · {genre_str}"
 
-                poster_url = (anime.get("coverImage") or {}).get("large")
+                poster_url  = (anime.get("coverImage") or {}).get("large")
 
-                # AniList doesn't have streaming data, so we note that
-                badges_html = (
-                    '<span class="badge-none">'
-                    'Try Crunchyroll, Funimation, or HIDIVE'
-                    '</span>'
-                )
+                # AniList has no streaming data — point users to likely sources
+                badges_html = '<span class="badge-none">Try Crunchyroll, Funimation, or HIDIVE</span>'
 
-                card_html = render_card(poster_url, title, year, rating_str, type_label, badges_html)
-                st.markdown(card_html, unsafe_allow_html=True)
+                st.markdown(render_card(poster_url, title, year, rating_str, type_label, badges_html), unsafe_allow_html=True)
+
+                with st.expander("More details"):
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.markdown(f"**Episodes:** {eps if eps else 'Unknown'}")
+                        st.markdown(f"**Score:** {score}/100" if score else "**Score:** N/A")
+                        status = anime.get("status", "").replace("_", " ").title()
+                        st.markdown(f"**Status:** {status or 'Unknown'}")
+
+                    with col2:
+                        st.markdown(f"**Genres:** {', '.join(genres) if genres else '—'}")
+
+                    # description is returned as plain text (asHtml: false in api.py)
+                    description = anime.get("description", "")
+                    if description:
+                        if len(description) > 500:
+                            description = description[:500].rstrip() + "…"
+                        st.markdown(f"**Synopsis:** {description}")
+                    else:
+                        st.markdown("*No synopsis available.*")
 
 else:
-    # ── EMPTY STATE (no search query yet) ──
     st.markdown("""
-        <div style="
-            text-align: center;
-            padding: 60px 20px;
-            color: #444;
-            font-size: 1rem;
-        ">
+        <div style="text-align:center; padding:60px 20px; color:#444; font-size:1rem;">
             Start typing above to search for something to watch.
         </div>
     """, unsafe_allow_html=True)
