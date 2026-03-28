@@ -4,7 +4,7 @@ from api import search_tmdb, get_streaming, search_anilist
 # Must be the first Streamlit call
 st.set_page_config(
     page_title="WhereToWatch",
-    page_icon="🎬",
+    page_icon="📺",
     layout="wide",
 )
 
@@ -48,9 +48,9 @@ st.markdown("""
     .result-card {
         background-color: #161625;
         border: 1px solid #2a2a3d;
-        border-radius: 12px;
+        border-radius: 12px 12px 0 0;
         padding: 16px;
-        margin-bottom: 16px;
+        margin-bottom: 0;
         display: flex;
         gap: 18px;
         align-items: flex-start;
@@ -58,6 +58,11 @@ st.markdown("""
         transition: border-color 0.2s;
     }
     .result-card:hover { border-color: #5555aa; }
+
+    /* Expander directly below a card — flush bottom edge, add gap after */
+    .result-card + div {
+        margin-bottom: 16px;
+    }
 
     /* Poster */
     .card-poster {
@@ -135,6 +140,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# TMDB sometimes returns verbose/internal names — normalize them before display or lookup
+PROVIDER_NAME_MAP = {
+    "Crunchyroll Amazon Channel": "Crunchyroll",
+    "Paramount+ Amazon Channel":  "Paramount Plus",
+    "Peacock Premium":            "Peacock",
+    "HBO Max":                    "Max",
+    "Funimation Now":             "Crunchyroll",  # Funimation merged into Crunchyroll
+}
+
 # Provider URLs — keyed to match TMDB provider_name values exactly
 PROVIDER_URLS = {
     "Netflix":               "https://www.netflix.com",
@@ -194,8 +208,13 @@ def build_badges_html(providers):
         return '<span class="badge-none">⚠️ Not currently available on any streaming platform</span>'
 
     badges = ""
+    seen_names = set()
     for p in providers:
-        name  = p.get("provider_name", "Unknown")
+        name = PROVIDER_NAME_MAP.get(p.get("provider_name", ""), p.get("provider_name", "Unknown"))
+        # After normalization two entries can collapse to the same name — skip duplicates
+        if name in seen_names:
+            continue
+        seen_names.add(name)
         color = PROVIDER_COLORS.get(name, PROVIDER_COLORS["default"])
         url   = PROVIDER_URLS.get(name)
 
@@ -361,14 +380,14 @@ if query:
 
                 genres     = anime.get("genres", [])
                 genre_str  = ", ".join(genres[:3]) if genres else "—"
+                # AniList episode counts are per-entry, not total series — omit from card but still show in expander
                 eps        = anime.get("episodes")
-                type_label = f"Anime · {eps} eps" if eps else "Anime"
-                type_label += f" · {genre_str}"
+                type_label = f"Anime · {genre_str}"
 
                 poster_url  = (anime.get("coverImage") or {}).get("large")
 
                 # AniList has no streaming data — point users to likely sources
-                badges_html = '<span class="badge-none">Try Crunchyroll, Funimation, or HIDIVE</span>'
+                badges_html = '<span class="badge-none">Try Crunchyroll or HIDIVE</span>'
 
                 st.markdown(render_card(poster_url, title, year, rating_str, type_label, badges_html), unsafe_allow_html=True)
 
