@@ -3,7 +3,13 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-TMDB_KEY = os.getenv('TMDB_API_KEY')
+
+# st.secrets works on Streamlit Cloud; os.getenv works locally via .env
+try:
+    import streamlit as st
+    TMDB_KEY = st.secrets["TMDB_API_KEY"]
+except Exception:
+    TMDB_KEY = os.getenv('TMDB_API_KEY')
 TMDB_BASE = 'https://api.themoviedb.org/3'
 
 
