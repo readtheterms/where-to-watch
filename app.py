@@ -249,74 +249,76 @@ query = st.text_input(
 
 # ── Results ───────────────────────────────────────────────────────────────────
 if query:
+    # Cache results in session_state keyed by query so sort changes don't re-fetch
+    if st.session_state.get("cached_query") != query:
+        with st.spinner("Searching..."):
+            tmdb_raw = search_tmdb(query)
+            enriched = []
+            for item in tmdb_raw[:6]:
+                media_type     = item.get("media_type", "movie")
+                providers_data = get_streaming(item["id"], media_type)
+                all_providers  = (
+                    providers_data.get("flatrate", []) +
+                    providers_data.get("ads", []) +
+                    providers_data.get("free", [])
+                )
+                seen, unique_providers = set(), []
+                for p in all_providers:
+                    pname = p.get("provider_name")
+                    if pname and pname not in seen:
+                        seen.add(pname)
+                        unique_providers.append(p)
+                enriched.append({"item": item, "providers": unique_providers})
+
+            st.session_state.cached_query        = query
+            st.session_state.cached_tmdb_enriched = enriched
+            st.session_state.cached_anime         = search_anilist(query)
+
+    enriched      = st.session_state.cached_tmdb_enriched
+    anime_results = st.session_state.cached_anime
+
     # ── Movies & TV ──────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">📺 Movies &amp; TV Shows</div>', unsafe_allow_html=True)
 
-    with st.spinner("Searching movies and TV shows..."):
-        tmdb_results = search_tmdb(query)
+    if not enriched:
+        st.markdown('<p style="color:#666;">No movies or TV shows found.</p>', unsafe_allow_html=True)
+    else:
+        sort_by = st.radio(
+            "Sort by",
+            options=["Relevance", "Rating (high to low)", "Release year (newest first)"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
 
-        enriched = []
-        for item in tmdb_results[:6]:
-            media_type     = item.get("media_type", "movie")
-            providers_data = get_streaming(item["id"], media_type)
+        sorted_enriched = list(enriched)
+        if sort_by == "Rating (high to low)":
+            sorted_enriched.sort(key=lambda e: e["item"].get("vote_average") or 0, reverse=True)
+        elif sort_by == "Release year (newest first)":
+            def get_year(e):
+                date = e["item"].get("release_date") or e["item"].get("first_air_date") or ""
+                return date[:4] if date else "0"
+            sorted_enriched.sort(key=get_year, reverse=True)
 
-            all_providers = (
-                providers_data.get("flatrate", []) +
-                providers_data.get("ads", []) +
-                providers_data.get("free", [])
-            )
+        for entry in sorted_enriched:
+            item       = entry["item"]
+            providers  = entry["providers"]
+            media_type = item.get("media_type", "movie")
 
-            # A provider can appear in multiple tiers — deduplicate by name
-            seen, unique_providers = set(), []
-            for p in all_providers:
-                pname = p.get("provider_name")
-                if pname and pname not in seen:
-                    seen.add(pname)
-                    unique_providers.append(p)
+            # movies → 'title' + 'release_date'; TV → 'name' + 'first_air_date'
+            title    = item.get("title") or item.get("name") or "Unknown Title"
+            date_str = item.get("release_date") or item.get("first_air_date") or ""
+            year     = date_str[:4] if date_str else "—"
 
-            enriched.append({"item": item, "providers": unique_providers})
+            vote       = item.get("vote_average")
+            rating_str = f"⭐ {vote:.1f} / 10" if vote else "No rating yet"
+            type_label = "Movie" if media_type == "movie" else "TV Show"
+            poster_url = get_tmdb_poster(item.get("poster_path"))
 
-        if not tmdb_results:
-            st.markdown('<p style="color:#666;">No movies or TV shows found.</p>', unsafe_allow_html=True)
-        else:
-            sort_by = st.selectbox(
-                "Sort by",
-                options=["Relevance", "Rating (high to low)", "Release year (newest first)"],
-                label_visibility="collapsed",
-            )
-
-            if sort_by == "Rating (high to low)":
-                enriched.sort(key=lambda e: e["item"].get("vote_average") or 0, reverse=True)
-            elif sort_by == "Release year (newest first)":
-                def get_year(e):
-                    date = e["item"].get("release_date") or e["item"].get("first_air_date") or ""
-                    return date[:4] if date else "0"
-                enriched.sort(key=get_year, reverse=True)
-            # "Relevance" keeps TMDB's default order
-
-            for entry in enriched:
-                item       = entry["item"]
-                providers  = entry["providers"]
-                media_type = item.get("media_type", "movie")
-
-                # movies → 'title' + 'release_date'; TV → 'name' + 'first_air_date'
-                title    = item.get("title") or item.get("name") or "Unknown Title"
-                date_str = item.get("release_date") or item.get("first_air_date") or ""
-                year     = date_str[:4] if date_str else "—"
-
-                vote       = item.get("vote_average")
-                rating_str = f"⭐ {vote:.1f} / 10" if vote else "No rating yet"
-                type_label = "Movie" if media_type == "movie" else "TV Show"
-                poster_url = get_tmdb_poster(item.get("poster_path"))
-
-                badges_html = build_badges_html(providers)
-                st.markdown(render_card(poster_url, title, year, rating_str, type_label, badges_html), unsafe_allow_html=True)
+            badges_html = build_badges_html(providers)
+            st.markdown(render_card(poster_url, title, year, rating_str, type_label, badges_html), unsafe_allow_html=True)
 
     # ── Anime ─────────────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">🍥 Anime</div>', unsafe_allow_html=True)
-
-    with st.spinner("Searching anime..."):
-        anime_results = search_anilist(query)
 
     if not anime_results:
         st.markdown('<p style="color:#666;">No anime found.</p>', unsafe_allow_html=True)
