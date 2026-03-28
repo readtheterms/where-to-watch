@@ -241,13 +241,14 @@ def build_providers(providers_data):
     return unique
 
 
-def build_providers_html(providers, anilist_only=False):
+def build_providers_html(providers, no_streaming_data=False):
     """
     Render provider logos from TMDB's logo_path where available.
     Falls back to a colored text badge if no logo exists.
+    If no streaming data could be found at all, link to JustWatch search.
     """
-    if anilist_only:
-        return '<span class="badge-none">Try Crunchyroll or HIDIVE</span>'
+    if no_streaming_data:
+        return '<span class="badge-none">Streaming info unavailable for this title</span>'
     if not providers:
         return '<span class="badge-none">⚠️ Not available on any streaming platform</span>'
 
@@ -350,21 +351,48 @@ def fetch_results(query):
             "source":     "tmdb",
         })
 
-    for anime in anilist_raw:
-        if id(anime) in matched_ids:
-            continue
+    # For unmatched AniList titles, try a targeted TMDB search by name
+    # to see if we can find streaming data that the initial search missed
+    unmatched = [a for a in anilist_raw if id(a) not in matched_ids]
+
+    def tmdb_lookup(anime):
+        """Search TMDB by the anime's title and return provider data if found."""
         titles = anime.get("title", {})
-        title  = titles.get("english") or titles.get("romaji") or "Unknown Title"
-        score  = anime.get("averageScore")
+        title  = titles.get("english") or titles.get("romaji") or ""
+        if not title:
+            return anime, {}
+
+        candidates = search_tmdb(title)
+        norm = normalize_title(title)
+        for candidate in candidates[:3]:
+            candidate_title = candidate.get("title") or candidate.get("name") or ""
+            if normalize_title(candidate_title) == norm:
+                return anime, get_streaming(candidate["id"], candidate.get("media_type", "tv"))
+        return anime, {}
+
+    if unmatched:
+        with ThreadPoolExecutor() as executor:
+            lookup_futures = [executor.submit(tmdb_lookup, anime) for anime in unmatched]
+            lookup_results = [f.result() for f in lookup_futures]
+    else:
+        lookup_results = []
+
+    for anime, providers_data in lookup_results:
+        titles    = anime.get("title", {})
+        title     = titles.get("english") or titles.get("romaji") or "Unknown Title"
+        score     = anime.get("averageScore")
+        providers = build_providers(providers_data)
+
         results.append({
             "title":      title,
             "year":       str(anime.get("startDate", {}).get("year") or "—"),
             "rating":     score / 10 if score else None,
             "poster_url": (anime.get("coverImage") or {}).get("large"),
             "type_label": "Anime",
-            "providers":  [],
+            "providers":  providers,
             "anilist":    anime,
-            "source":     "anilist",
+            # flag used by build_providers_html to show the JustWatch fallback
+            "source":     "anilist" if not providers else "anilist_enriched",
         })
 
     return results
@@ -421,9 +449,10 @@ if query:
             anilist    = result["anilist"]
             rating     = result["rating"]
 
-            rating_str    = f"⭐ {rating:.1f} / 10" if rating else "No rating yet"
-            providers_html = build_providers_html(providers, anilist_only=(result["source"] == "anilist"))
-            has_expander  = anilist is not None
+            rating_str     = f"⭐ {rating:.1f} / 10" if rating else "No rating yet"
+            no_data        = result["source"] == "anilist" and not providers
+            providers_html = build_providers_html(providers, no_streaming_data=no_data)
+            has_expander   = anilist is not None
 
             st.markdown(
                 render_card(poster_url, title, year, rating_str, type_label, providers_html, has_expander),
