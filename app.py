@@ -26,24 +26,6 @@ st.markdown("""
         font-size: 1rem !important;
     }
 
-    /* Radio buttons styled as pill toggles */
-    div[role="radiogroup"] {
-        display: flex;
-        gap: 8px;
-    }
-    div[role="radiogroup"] label {
-        background-color: #1e1e1e;
-        border: 1px solid #444;
-        border-radius: 20px;
-        padding: 4px 16px;
-        cursor: pointer;
-        font-size: 0.9rem;
-        transition: background 0.2s;
-    }
-    div[role="radiogroup"] label:hover {
-        background-color: #2a2a2a;
-    }
-
     /* Result card */
     .result-card {
         background-color: #161625;
@@ -265,63 +247,34 @@ query = st.text_input(
     label_visibility="collapsed",
 )
 
-# ── Content type filter ───────────────────────────────────────────────────────
-filter_choice = st.radio(
-    label="filter",
-    options=["All", "Movies & TV", "Anime Only"],
-    horizontal=True,
-    label_visibility="collapsed",
-)
-
 # ── Results ───────────────────────────────────────────────────────────────────
 if query:
-    show_tmdb  = filter_choice in ("All", "Movies & TV")
-    show_anime = filter_choice in ("All", "Anime Only")
-
     # ── Movies & TV ──────────────────────────────────────────────────────────
-    if show_tmdb:
-        st.markdown('<div class="section-header">📺 Movies &amp; TV Shows</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📺 Movies &amp; TV Shows</div>', unsafe_allow_html=True)
 
-        # flatrate = paid subscription, ads/free = no cost to viewer
-        streaming_filter = st.radio(
-            label="streaming_tier",
-            options=["All tiers", "Free only", "Paid only"],
-            horizontal=True,
-            label_visibility="collapsed",
-        )
+    with st.spinner("Searching movies and TV shows..."):
+        tmdb_results = search_tmdb(query)
 
-        # Fetch search results and provider data inside the spinner so both are covered
-        with st.spinner("Searching movies and TV shows..."):
-            tmdb_results = search_tmdb(query)
+        enriched = []
+        for item in tmdb_results[:6]:
+            media_type     = item.get("media_type", "movie")
+            providers_data = get_streaming(item["id"], media_type)
 
-            enriched = []
-            for item in tmdb_results[:6]:
-                media_type     = item.get("media_type", "movie")
-                providers_data = get_streaming(item["id"], media_type)
+            all_providers = (
+                providers_data.get("flatrate", []) +
+                providers_data.get("ads", []) +
+                providers_data.get("free", [])
+            )
 
-                if streaming_filter == "Free only":
-                    all_providers = (
-                        providers_data.get("ads", []) +
-                        providers_data.get("free", [])
-                    )
-                elif streaming_filter == "Paid only":
-                    all_providers = providers_data.get("flatrate", [])
-                else:
-                    all_providers = (
-                        providers_data.get("flatrate", []) +
-                        providers_data.get("ads", []) +
-                        providers_data.get("free", [])
-                    )
+            # A provider can appear in multiple tiers — deduplicate by name
+            seen, unique_providers = set(), []
+            for p in all_providers:
+                pname = p.get("provider_name")
+                if pname and pname not in seen:
+                    seen.add(pname)
+                    unique_providers.append(p)
 
-                # A provider can appear in multiple tiers — deduplicate by name
-                seen, unique_providers = set(), []
-                for p in all_providers:
-                    pname = p.get("provider_name")
-                    if pname and pname not in seen:
-                        seen.add(pname)
-                        unique_providers.append(p)
-
-                enriched.append({"item": item, "providers": unique_providers})
+            enriched.append({"item": item, "providers": unique_providers})
 
         if not tmdb_results:
             st.markdown('<p style="color:#666;">No movies or TV shows found.</p>', unsafe_allow_html=True)
@@ -360,57 +313,56 @@ if query:
                 st.markdown(render_card(poster_url, title, year, rating_str, type_label, badges_html), unsafe_allow_html=True)
 
     # ── Anime ─────────────────────────────────────────────────────────────────
-    if show_anime:
-        st.markdown('<div class="section-header">🍥 Anime</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🍥 Anime</div>', unsafe_allow_html=True)
 
-        with st.spinner("Searching anime..."):
-            anime_results = search_anilist(query)
+    with st.spinner("Searching anime..."):
+        anime_results = search_anilist(query)
 
-        if not anime_results:
-            st.markdown('<p style="color:#666;">No anime found.</p>', unsafe_allow_html=True)
-        else:
-            for anime in anime_results:
-                titles = anime.get("title", {})
-                title  = titles.get("english") or titles.get("romaji") or "Unknown Title"
-                year   = str(anime.get("startDate", {}).get("year") or "—")
+    if not anime_results:
+        st.markdown('<p style="color:#666;">No anime found.</p>', unsafe_allow_html=True)
+    else:
+        for anime in anime_results:
+            titles = anime.get("title", {})
+            title  = titles.get("english") or titles.get("romaji") or "Unknown Title"
+            year   = str(anime.get("startDate", {}).get("year") or "—")
 
-                # AniList scores are /100; display as /10 to match TMDB
-                score      = anime.get("averageScore")
-                rating_str = f"⭐ {score / 10:.1f} / 10" if score else "No rating yet"
+            # AniList scores are /100; display as /10 to match TMDB
+            score      = anime.get("averageScore")
+            rating_str = f"⭐ {score / 10:.1f} / 10" if score else "No rating yet"
 
-                genres     = anime.get("genres", [])
-                genre_str  = ", ".join(genres[:3]) if genres else "—"
-                # AniList episode counts are per-entry, not total series — omit from card but still show in expander
-                eps        = anime.get("episodes")
-                type_label = f"Anime · {genre_str}"
+            genres     = anime.get("genres", [])
+            genre_str  = ", ".join(genres[:3]) if genres else "—"
+            # AniList episode counts are per-entry, not total series — omit from card but still show in expander
+            eps        = anime.get("episodes")
+            type_label = f"Anime · {genre_str}"
 
-                poster_url  = (anime.get("coverImage") or {}).get("large")
+            poster_url  = (anime.get("coverImage") or {}).get("large")
 
-                # AniList has no streaming data — point users to likely sources
-                badges_html = '<span class="badge-none">Try Crunchyroll or HIDIVE</span>'
+            # AniList has no streaming data — point users to likely sources
+            badges_html = '<span class="badge-none">Try Crunchyroll or HIDIVE</span>'
 
-                st.markdown(render_card(poster_url, title, year, rating_str, type_label, badges_html), unsafe_allow_html=True)
+            st.markdown(render_card(poster_url, title, year, rating_str, type_label, badges_html), unsafe_allow_html=True)
 
-                with st.expander("More details"):
-                    col1, col2 = st.columns(2)
+            with st.expander("More details"):
+                col1, col2 = st.columns(2)
 
-                    with col1:
-                        st.markdown(f"**Episodes:** {eps if eps else 'Unknown'}")
-                        st.markdown(f"**Score:** {score}/100" if score else "**Score:** N/A")
-                        status = anime.get("status", "").replace("_", " ").title()
-                        st.markdown(f"**Status:** {status or 'Unknown'}")
+                with col1:
+                    st.markdown(f"**Episodes:** {eps if eps else 'Unknown'}")
+                    st.markdown(f"**Score:** {score}/100" if score else "**Score:** N/A")
+                    status = anime.get("status", "").replace("_", " ").title()
+                    st.markdown(f"**Status:** {status or 'Unknown'}")
 
-                    with col2:
-                        st.markdown(f"**Genres:** {', '.join(genres) if genres else '—'}")
+                with col2:
+                    st.markdown(f"**Genres:** {', '.join(genres) if genres else '—'}")
 
-                    # description is returned as plain text (asHtml: false in api.py)
-                    description = anime.get("description", "")
-                    if description:
-                        if len(description) > 500:
-                            description = description[:500].rstrip() + "…"
-                        st.markdown(f"**Synopsis:** {description}")
-                    else:
-                        st.markdown("*No synopsis available.*")
+                # description is returned as plain text (asHtml: false in api.py)
+                description = anime.get("description", "")
+                if description:
+                    if len(description) > 500:
+                        description = description[:500].rstrip() + "…"
+                    st.markdown(f"**Synopsis:** {description}")
+                else:
+                    st.markdown("*No synopsis available.*")
 
 else:
     st.markdown("""
