@@ -255,9 +255,11 @@ def build_providers_html(providers, no_streaming_data=False):
     html = ""
     for p in providers:
         name      = p.get("provider_name", "Unknown")
-        logo_path = p.get("logo_path")
-        url       = PROVIDER_URLS.get(name)  # None if unknown
+        url       = PROVIDER_URLS.get(name)
+        if not url:
+            continue  # skip providers we don't have a URL for
 
+        logo_path = p.get("logo_path")
         if logo_path:
             inner = (
                 f'<span class="provider-logo-wrap">'
@@ -268,11 +270,11 @@ def build_providers_html(providers, no_streaming_data=False):
             color = PROVIDER_COLORS.get(name, PROVIDER_COLORS["default"])
             inner = f'<span class="badge" style="background-color:{color};">{name}</span>'
 
-        # Only wrap in a link if we have a known URL — avoids reloading the page
-        if url:
-            html += f'<a href="{url}" target="_blank" rel="noopener" style="text-decoration:none;" title="{name}">{inner}</a>'
-        else:
-            html += inner
+        html += f'<a href="{url}" target="_blank" rel="noopener" style="text-decoration:none;" title="{name}">{inner}</a>'
+
+    # If all providers were filtered out, treat it as unavailable
+    if not html:
+        return '<span class="badge-none">⚠️ Not available on any streaming platform</span>'
 
     return html
 
