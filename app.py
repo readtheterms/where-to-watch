@@ -256,25 +256,24 @@ def build_providers_html(providers, no_streaming_data=False):
     for p in providers:
         name      = p.get("provider_name", "Unknown")
         logo_path = p.get("logo_path")
-        url       = PROVIDER_URLS.get(name, "#")
-        link_open = f'<a href="{url}" target="_blank" rel="noopener" style="text-decoration:none;" title="{name}">'
-        link_close = "</a>"
+        url       = PROVIDER_URLS.get(name)  # None if unknown
 
         if logo_path:
-            html += (
-                f'{link_open}'
+            inner = (
                 f'<span class="provider-logo-wrap">'
                 f'<img class="provider-logo" src="{TMDB_LOGO_BASE}{logo_path}" alt="{name}">'
                 f'</span>'
-                f'{link_close}'
             )
         else:
             color = PROVIDER_COLORS.get(name, PROVIDER_COLORS["default"])
-            html += (
-                f'{link_open}'
-                f'<span class="badge" style="background-color:{color};">{name}</span>'
-                f'{link_close}'
-            )
+            inner = f'<span class="badge" style="background-color:{color};">{name}</span>'
+
+        # Only wrap in a link if we have a known URL — avoids reloading the page
+        if url:
+            html += f'<a href="{url}" target="_blank" rel="noopener" style="text-decoration:none;" title="{name}">{inner}</a>'
+        else:
+            html += inner
+
     return html
 
 
